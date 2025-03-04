@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MS Project Scheduler</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        #result {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            border: 1px solid #ddd;
+            padding: 15px;
+            min-height: 100px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.3);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .button-container {
+            margin-top: 15px;
+        }
+        #exportBtn {
+            background-color: #2196F3;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI MS Project Scheduler</h1>
+    <p>Describe your project requirements below and get a structured project schedule:</p>
+    
+    <div style="margin-bottom: 15px;">
+        <label for="modelSelect">Select AI Model:</label>
+        <select id="modelSelect">
+            <option value="openai">OpenAI GPT-4</option>
+            <option value="gemini">Google Gemini 2.0</option>
+        </select>
+    </div>
+    
+    <textarea id="userInput" placeholder="Describe your project here. Include tasks, timeline constraints, resources, and any other relevant details."></textarea>
+    <button id="generateBtn">Generate Schedule</button>
+    
+    <div id="resultContainer">
+        <div id="loadingIndicator" class="hidden">
+            <span class="loading"></span> Generating schedule...
+        </div>
+        <div id="result" class="hidden"></div>
+        <div class="button-container hidden" id="exportContainer">
+            <button id="exportBtn">Export to MS Project</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const userInput = document.getElementById('userInput').value;
+            const modelChoice = document.getElementById('modelSelect').value;
+            const resultDiv = document.getElementById('result');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const exportContainer = document.getElementById('exportContainer');
+            
+            // Show loading, hide result
+            loadingIndicator.classList.remove('hidden');
+            resultDiv.classList.add('hidden');
+            exportContainer.classList.add('hidden');
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        text: userInput,
+                        model: modelChoice
+                    })
+                });
+                
+                const data = await response.json();
+                
+                // Hide loading
+                loadingIndicator.classList.add('hidden');
+                
+                // Show result
+                resultDiv.classList.remove('hidden');
+                
+                if (data.error) {
+                    resultDiv.textContent = data.error;
+                } else {
+                    resultDiv.innerHTML = data.schedule;
+                    // Show export button
+                    exportContainer.classList.remove('hidden');
+                }
+            } catch (error) {
+                loadingIndicator.classList.add('hidden');
+                resultDiv.classList.remove('hidden');
+                resultDiv.textContent = "Error generating schedule. Please try again.";
+                console.error(error);
+            }
+        });
+        
+        document.getElementById('exportBtn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/export', {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = 'project_schedule.xml';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    alert('Failed to export schedule');
+                }
+            } catch (error) {
+                console.error('Export error:', error);
+                alert('Error exporting schedule');
+            }
+        });
+    </script>
+</body>
+</html>
