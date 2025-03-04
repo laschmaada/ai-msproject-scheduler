@@ -55,10 +55,42 @@
         .hidden {
             display: none;
         }
+        .file-upload {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px dashed #ccc;
+            background-color: #f9f9f9;
+        }
+        .file-upload-label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .file-info {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .toggle-section {
+            cursor: pointer;
+            color: #2196F3;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
     <h1>AI MS Project Scheduler</h1>
+    
+    <div class="toggle-section" id="toggleUpload">+ Upload Knowledge Base (Optional)</div>
+    <div class="file-upload hidden" id="uploadSection">
+        <span class="file-upload-label">Upload PDF Document as Knowledge Base:</span>
+        <input type="file" id="pdfUpload" accept=".pdf" />
+        <div class="file-info">
+            <p>Upload a PDF document containing project specifications, requirements, or other relevant information. The AI will use this as additional context when generating your schedule.</p>
+            <div id="uploadStatus"></div>
+        </div>
+    </div>
+    
     <p>Describe your project requirements below and get a structured project schedule:</p>
     
     <div style="margin-bottom: 15px;">
@@ -83,6 +115,56 @@
     </div>
 
     <script>
+        // Toggle PDF upload section
+        document.getElementById('toggleUpload').addEventListener('click', function() {
+            const uploadSection = document.getElementById('uploadSection');
+            const isHidden = uploadSection.classList.contains('hidden');
+            
+            if (isHidden) {
+                uploadSection.classList.remove('hidden');
+                this.textContent = '- Upload Knowledge Base (Optional)';
+            } else {
+                uploadSection.classList.add('hidden');
+                this.textContent = '+ Upload Knowledge Base (Optional)';
+            }
+        });
+        
+        // Handle file upload
+        let uploadedPdfId = null;
+        
+        document.getElementById('pdfUpload').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const uploadStatus = document.getElementById('uploadStatus');
+            uploadStatus.textContent = 'Uploading...';
+            
+            const formData = new FormData();
+            formData.append('pdf', file);
+            
+            try {
+                const response = await fetch('/upload_pdf', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    uploadedPdfId = data.pdf_id;
+                    uploadStatus.textContent = `✓ ${file.name} uploaded successfully`;
+                    uploadStatus.style.color = 'green';
+                } else {
+                    uploadStatus.textContent = `Error: ${data.error}`;
+                    uploadStatus.style.color = 'red';
+                }
+            } catch (error) {
+                uploadStatus.textContent = 'Error uploading file. Please try again.';
+                uploadStatus.style.color = 'red';
+                console.error(error);
+            }
+        });
+        
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const userInput = document.getElementById('userInput').value;
             const modelChoice = document.getElementById('modelSelect').value;
@@ -103,7 +185,8 @@
                     },
                     body: JSON.stringify({ 
                         text: userInput,
-                        model: modelChoice
+                        model: modelChoice,
+                        pdf_id: uploadedPdfId
                     })
                 });
                 

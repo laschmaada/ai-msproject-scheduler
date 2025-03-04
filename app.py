@@ -8,6 +8,9 @@ from datetime import datetime, timedelta
 import uuid
 import io
 import markdown
+import PyPDF2
+import tempfile
+import shutil
 
 app = Flask(__name__)
 
@@ -22,9 +25,67 @@ latest_schedule = None
 if gemini_api_key:
     genai.configure(api_key=gemini_api_key)
 
+# Store the latest generated schedule
+latest_schedule = None
+
+# Create a temporary directory for uploaded PDFs
+UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), 'ai_scheduler_pdfs')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Store uploaded PDF information
+pdf_storage = {}
+
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/upload_pdf", methods=["POST"])
+def upload_pdf():
+    try:
+        if 'pdf' not in request.files:
+            return jsonify({"success": False, "error": "No file part"}), 400
+            
+        file = request.files['pdf']
+        
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
+            
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({"success": False, "error": "Only PDF files are allowed"}), 400
+        
+        # Generate a unique ID for this PDF
+        pdf_id = str(uuid.uuid4())
+        
+        # Save the file to the temporary directory
+        pdf_path = os.path.join(UPLOAD_FOLDER, f"{pdf_id}.pdf")
+        file.save(pdf_path)
+        
+        # Extract text from the PDF
+        pdf_text = extract_text_from_pdf(pdf_path)
+        
+        # Store the PDF information
+        pdf_storage[pdf_id] = {
+            "filename": file.filename,
+            "path": pdf_path,
+            "text": pdf_text
+        }
+        
+        return jsonify({"success": True, "pdf_id": pdf_id})
+        
+    except Exception as e:
+        print(f"PDF upload error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    try:
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            for page_num in range(len(reader.pages)):
+                text += reader.pages[page_num].extract_text() + "\n\n"
+    except Exception as e:
+        print(f"Error extracting text from PDF: {str(e)}")
+    return text
 
 @app.route("/generate", methods=["POST"])
 def generate_schedule():
@@ -32,6 +93,7 @@ def generate_schedule():
     try:
         user_input = request.json.get("text")
         model_choice = request.json.get("model", "openai")  # Default to OpenAI if not specified
+        pdf_id = request.json.get("pdf_id")
         
         if not user_input:
             return jsonify({"error": "No input provided"}), 400
@@ -63,11 +125,22 @@ def generate_schedule():
         Separate multiple resources with commas.
         """
         
+        # Add PDF context if available
+        pdf_context = ""
+        if pdf_id and pdf_id in pdf_storage:
+            pdf_text = pdf_storage[pdf_id]["text"]
+            pdf_context = f"\n\nHere is additional context from the uploaded document:\n\n{pdf_text}\n\nUse the information from this document to inform your project schedule generation."
+        
+        # Combine user input with PDF context
+        full_input = user_input
+        if pdf_context:
+            full_input += "\n\nPlease use the following document as additional context: " + pdf_context
+        
         if model_choice == "gemini" and gemini_api_key:
             # Use Gemini API
             gemini_model = genai.GenerativeModel('gemini-1.5-pro')
             response = gemini_model.generate_content([
-                {"role": "user", "parts": [system_prompt + "\n\n" + user_input]}
+                {"role": "user", "parts": [system_prompt + "\n\n" + full_input]}
             ])
             schedule_text = response.text
         else:
@@ -79,7 +152,7 @@ def generate_schedule():
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
+                    {"role": "user", "content": full_input}
                 ]
             )
             schedule_text = response.choices[0].message.content
@@ -146,6 +219,16 @@ def convert_to_ms_project_xml(markdown_text):
     xml += f'  <MinutesPerWeek>2400</MinutesPerWeek>\n'
     xml += f'  <DaysPerMonth>20</DaysPerMonth>\n'
     
+    # Helper function to escape XML special characters
+    def escape_xml(text):
+        if text is None:
+            return ""
+        return (text.replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\"", "&quot;")
+                   .replace("'", "&apos;"))
+    
     # Parse tasks from markdown
     tasks = []
     resources = set()
@@ -157,7 +240,7 @@ def convert_to_ms_project_xml(markdown_text):
     start_date = datetime.now()
     
     for match in task_matches:
-        task_name = match.group(1).strip()
+        task_name = escape_xml(match.group(1).strip())
         task_details = match.group(2).strip()
         
         # Extract task information
@@ -193,7 +276,7 @@ def convert_to_ms_project_xml(markdown_text):
         
         # Extract notes
         notes_match = re.search(r"Notes:\s*(.*?)(?:\n|$)", task_details)
-        notes = notes_match.group(1) if notes_match else ""
+        notes = escape_xml(notes_match.group(1) if notes_match else "")
         
         # Add task to list
         tasks.append({
@@ -250,11 +333,12 @@ def convert_to_ms_project_xml(markdown_text):
     resource_map = {}
     
     for resource_name in resources:
+        escaped_name = escape_xml(resource_name)
         resource_map[resource_name] = resource_id
         xml += f'    <Resource>\n'
         xml += f'      <UID>{resource_id}</UID>\n'
         xml += f'      <ID>{resource_id}</ID>\n'
-        xml += f'      <Name>{resource_name}</Name>\n'
+        xml += f'      <Name>{escaped_name}</Name>\n'
         xml += f'      <Type>1</Type>\n'  # Work resource type
         xml += f'    </Resource>\n'
         resource_id += 1
@@ -280,7 +364,6 @@ def convert_to_ms_project_xml(markdown_text):
     xml += '</Project>'
     
     return xml
-    return ET.tostring(root, encoding='unicode', method='xml')
 
 if __name__ == "__main__":
     app.run(debug=True)
