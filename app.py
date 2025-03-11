@@ -15,8 +15,8 @@ import shutil
 app = Flask(__name__)
 
 # Configure API Keys (Use Environment Variables in Production)
-openai.api_key = os.environ.get("OPENAI_API_KEY", "ysk-proj-NO9FmvEUxt2h-D8khcpKz72ditkkpV98AzrcKivb0OFssR6rA7zlV8s9UqNBy7lHeX5UrbZW6cT3BlbkFJSbaij2gnPmezxqqwZnqFYviirGc0709nuO0BTXpbOwHjombv3dZyzM61IbLQJDCtzM_FLg8tkA")
-gemini_api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyBCwlue0jwOgxBWQQh4VfcUrn-27OSs-Yc")
+openai.api_key = os.environ.get("OPENAI_API_KEY", "")
+gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
 
 # Store the latest generated schedule
 latest_schedule = None
